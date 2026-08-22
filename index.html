@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>OPIEOR — дерево ссылок</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=VT323&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+			rel="stylesheet"
+		/>
+		<style>
+			:root {
+				--bg: #0b0a07;
+				--amber: #ffb300;
+				--amber-dim: #8a5a17;
+				--amber-glow: rgba(255, 179, 0, 0.35);
+				--muted: #a98a55;
+				--font-size: 12px;
+				--line-height: 15px;
+			}
+			* {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			html,
+			body {
+				height: 100%;
+			}
+			body {
+				background: var(--bg);
+				color: var(--muted);
+				font-family: 'IBM Plex Mono', monospace;
+				overflow: hidden;
+				position: relative;
+			}
+			::selection {
+				background: var(--amber);
+				color: #141005;
+			}
+
+			.scanlines {
+				pointer-events: none;
+				position: fixed;
+				inset: 0;
+				z-index: 50;
+				background: repeating-linear-gradient(
+					to bottom,
+					rgba(0, 0, 0, 0) 0px,
+					rgba(0, 0, 0, 0) 2px,
+					rgba(0, 0, 0, 0.1) 3px
+				);
+				mix-blend-mode: multiply;
+			}
+			.vignette {
+				pointer-events: none;
+				position: fixed;
+				inset: 0;
+				z-index: 49;
+				background: radial-gradient(
+					ellipse at center,
+					rgba(0, 0, 0, 0) 55%,
+					rgba(0, 0, 0, 0.62) 100%
+				);
+			}
+
+			.topbar {
+				position: fixed;
+				top: 0;
+				left: 0;
+				right: 0;
+				z-index: 20;
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 20px 26px;
+				background: linear-gradient(
+					180deg,
+					rgba(11, 10, 7, 0.85),
+					rgba(11, 10, 7, 0)
+				);
+				pointer-events: none;
+			}
+			.brand {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				font-family: 'VT323', monospace;
+				font-size: 24px;
+				color: var(--amber);
+				text-shadow: 0 0 10px var(--amber-glow);
+			}
+			.brand .dot {
+				width: 8px;
+				height: 8px;
+				border-radius: 50%;
+				background: var(--amber);
+				box-shadow: 0 0 8px var(--amber);
+				animation: blink 2.4s steps(1) infinite;
+			}
+			@keyframes blink {
+				0%,
+				60% {
+					opacity: 1;
+				}
+				61%,
+				100% {
+					opacity: 0.2;
+				}
+			}
+			.job-readout {
+				font-size: 11px;
+				letter-spacing: 0.06em;
+				color: var(--amber-dim);
+			}
+
+			.stage {
+				position: fixed;
+				inset: 0;
+				display: flex;
+				align-items: flex-end;
+				justify-content: center;
+				z-index: 1;
+			}
+			.plot-wrap {
+				position: relative;
+				font-size: var(--font-size);
+				line-height: var(--line-height);
+			}
+			.plot-wrap pre {
+				font-family: 'IBM Plex Mono', monospace;
+				font-size: var(--font-size);
+				line-height: var(--line-height);
+				white-space: pre;
+				color: var(--amber);
+			}
+			.plot-wrap pre span {
+				text-shadow: 0 0 5px currentColor;
+			}
+
+			.fruit-anchor {
+				position: absolute;
+				width: 0;
+				height: 0;
+			}
+			.fruit {
+				position: absolute;
+				left: 0;
+				top: 0;
+				width: 42px;
+				height: 42px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 34px;
+				line-height: 1;
+				text-decoration: none;
+				cursor: pointer;
+				opacity: 0;
+				transform: translate(-50%, -50%) scale(0.2) rotate(-8deg);
+				filter: drop-shadow(0 0 5px var(--fg, var(--amber-glow)));
+				transition:
+					transform 0.55s cubic-bezier(0.2, 1.7, 0.4, 1),
+					filter 0.35s ease,
+					opacity 0.45s ease;
+				animation: sway 3.6s ease-in-out infinite;
+				animation-delay: var(--sway-delay, 0s);
+				z-index: 2;
+			}
+			.fruit.shown {
+				opacity: 1;
+				transform: translate(-50%, -50%) scale(1) rotate(0deg);
+			}
+			.fruit:hover,
+			.fruit:focus-visible {
+				transform: translate(-50%, -50%) scale(1.35) rotate(0deg);
+				filter: drop-shadow(0 0 12px var(--fg, var(--amber-glow)))
+					brightness(1.15);
+				outline: none;
+				animation-play-state: paused;
+			}
+			@keyframes sway {
+				0%,
+				100% {
+					transform: translate(-50%, -50%) scale(1) rotate(0deg) translateY(0);
+				}
+				50% {
+					transform: translate(-50%, -50%) scale(1) rotate(0deg)
+						translateY(-4px);
+				}
+			}
+			.fruit .tip {
+				position: absolute;
+				bottom: 135%;
+				left: 50%;
+				transform: translateX(-50%);
+				background: #000;
+				color: var(--fc, var(--amber));
+				border: 1px solid var(--fc, var(--amber));
+				padding: 4px 9px;
+				font-size: 14px;
+				font-family: 'IBM Plex Mono', monospace;
+				white-space: nowrap;
+				border-radius: 3px;
+				opacity: 0;
+				pointer-events: none;
+			}
+			.fruit:hover .tip,
+			.fruit:focus-visible .tip {
+				opacity: 1;
+			}
+
+			.controls {
+				position: fixed;
+				bottom: 22px;
+				left: 50%;
+				transform: translate(-50%, 160%);
+				opacity: 0;
+				pointer-events: none;
+				z-index: 20;
+				transition:
+					transform 1s cubic-bezier(0.16, 1, 0.3, 1),
+					opacity 0.7s ease;
+			}
+			.controls.shown {
+				transform: translate(-50%, 0);
+				opacity: 1;
+				pointer-events: auto;
+			}
+			.btn {
+				font-family: 'IBM Plex Mono', monospace;
+				font-size: 13px;
+				letter-spacing: 0.04em;
+				padding: 12px 22px;
+				border: 1px solid var(--amber);
+				background: rgba(11, 10, 7, 0.55);
+				backdrop-filter: blur(2px);
+				color: var(--amber);
+				cursor: pointer;
+				border-radius: 2px;
+				transition:
+					background 0.15s ease,
+					color 0.15s ease,
+					box-shadow 0.15s ease;
+			}
+			.btn:hover {
+				background: var(--amber);
+				color: #141005;
+				box-shadow: 0 0 18px var(--amber-glow);
+			}
+			.btn:focus-visible {
+				outline: 2px solid var(--amber);
+				outline-offset: 3px;
+			}
+
+			@media (prefers-reduced-motion: reduce) {
+				.brand .dot {
+					animation: none;
+				}
+				.fruit {
+					transition: opacity 0.01s linear;
+					animation: none;
+				}
+				.controls {
+					transition: none;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="scanlines"></div>
+		<div class="vignette"></div>
+
+		<div class="topbar">
+			<div class="brand"><span class="dot"></span> OPIEOR</div>
+			<div class="job-readout">SEED <span id="jobNo">—</span></div>
+		</div>
+
+		<div class="stage" id="stage">
+			<div class="plot-wrap" id="plotWrap">
+				<pre id="canvas"></pre>
+			</div>
+		</div>
+
+		<div class="controls" id="controls">
+			<button class="btn" id="growBtn">???</button>
+		</div>
+
+		<script>
+			;(function () {
+				const FONT_SIZE = 12 // px, must match --font-size
+				const LINE_HEIGHT = 15 // px, must match --line-height
+
+				const canvasEl = document.getElementById('canvas')
+				const plotWrap = document.getElementById('plotWrap')
+				const jobNoEl = document.getElementById('jobNo')
+				const controlsEl = document.getElementById('controls')
+				const reduceMotion = window.matchMedia(
+					'(prefers-reduced-motion: reduce)',
+				).matches
+
+				const LINKS = [
+					{
+						emoji: '🍇',
+						label: 'Discord',
+						url: 'https://discord.gg/ARA5Xwd44v',
+						color: '#8b7bff',
+					},
+					{
+						emoji: '🍓',
+						label: 'TikTok',
+						url: 'https://tiktok.com/@usera9j82492dk',
+						color: '#fe4d7a',
+					},
+					{
+						emoji: '🍒',
+						label: 'YouTube',
+						url: 'https://youtube.com/@opieor_alt',
+						color: '#ff4b4b',
+					},
+					{
+						emoji: '🍋',
+						label: 'Email',
+						url: 'mailto:khazov583@gmail.com',
+						color: '#ffd23f',
+					},
+					{
+						emoji: '🫐',
+						label: 'Telegram',
+						url: 'https://t.me/opieor',
+						color: '#4fb3ff',
+					},
+					{
+						emoji: '🍏',
+						label: 'GitHub',
+						url: 'https://github.com/opieor',
+						color: '#8bd450',
+					},
+				]
+
+				function mulberry32(a) {
+					return function () {
+						a |= 0
+						a = (a + 0x6d2b79f5) | 0
+						let t = Math.imul(a ^ (a >>> 15), 1 | a)
+						t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+						return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+					}
+				}
+
+				function hsl(h, s, l) {
+					return `hsl(${Math.round(h)} ${Math.round(s)}% ${Math.round(l)}%)`
+				}
+
+				const SPECIES = {
+					spruce: {
+						label: 'ель',
+						leafChars: ['^', '/', '\\', '*', 'A'],
+						trunkHue: [24, 34],
+						trunkSat: [36, 52],
+						trunkLight: [20, 38],
+						leafHue: [100, 140],
+						leafSat: [42, 62],
+						spread: [0.5, 0.68],
+						shrink: [0.6, 0.7],
+						extraChance: 0.15,
+						droop: 0.22,
+						maxDepth: [8, 10],
+						baseLenFactor: 0.3,
+						leafRadius: [1.1, 1.9],
+						rootScale: 0.85,
+					},
+					maple: {
+						label: 'клён',
+						leafChars: ['*', '&', '%', '@'],
+						trunkHue: [20, 34],
+						trunkSat: [40, 58],
+						trunkLight: [22, 42],
+						leafHue: [6, 48],
+						leafSat: [58, 82],
+						spread: [0.32, 0.58],
+						shrink: [0.72, 0.8],
+						extraChance: 0.4,
+						droop: -0.03,
+						maxDepth: [10, 11],
+						baseLenFactor: 0.24,
+						leafRadius: [2, 3.4],
+						rootScale: 1,
+					},
+				}
+				const SPECIES_KEYS = Object.keys(SPECIES)
+				function pick(rand, [min, max]) {
+					return min + rand() * (max - min)
+				}
+
+				function measureCharWidth() {
+					const probe = document.createElement('span')
+					probe.style.position = 'absolute'
+					probe.style.visibility = 'hidden'
+					probe.style.whiteSpace = 'pre'
+					probe.style.fontFamily = "'IBM Plex Mono', monospace"
+					probe.style.fontSize = FONT_SIZE + 'px'
+					probe.textContent = '0000000000'
+					document.body.appendChild(probe)
+					const w = probe.getBoundingClientRect().width / 10
+					document.body.removeChild(probe)
+					return w || FONT_SIZE * 0.6
+				}
+
+				let COLS = 100,
+					ROWS = 36,
+					ROOT_ROWS = 10,
+					TOTAL_ROWS = 46
+				function computeGrid() {
+					const charW = measureCharWidth()
+					const reservedTop = 90,
+						reservedBottom = 110,
+						sideMargin = 20
+					const availW = window.innerWidth - sideMargin * 2
+					const availH = window.innerHeight - reservedTop - reservedBottom
+					COLS = Math.max(50, Math.floor(availW / charW))
+					const totalRows = Math.max(34, Math.floor(availH / LINE_HEIGHT))
+					ROOT_ROWS = Math.min(14, Math.max(6, Math.floor(totalRows * 0.22)))
+					ROWS = Math.max(24, totalRows - ROOT_ROWS)
+					TOTAL_ROWS = ROWS + ROOT_ROWS
+				}
+
+				function generateTree(seed) {
+					const rand = mulberry32(seed)
+					const species = SPECIES_KEYS[Math.floor(rand() * SPECIES_KEYS.length)]
+					const cfg = SPECIES[species]
+
+					const trunkHue = pick(rand, cfg.trunkHue)
+					const trunkSat = pick(rand, cfg.trunkSat)
+					const trunkLightMin = cfg.trunkLight[0],
+						trunkLightMax = cfg.trunkLight[1]
+					const leafHue = pick(rand, cfg.leafHue)
+					const leafSat = pick(rand, cfg.leafSat)
+					const leafChars = cfg.leafChars
+
+					const grid = Array.from({ length: TOTAL_ROWS }, () =>
+						Array(COLS).fill(null),
+					)
+					const fieldDrawOrder = []
+					const treeDrawOrder = []
+					const rootDrawOrder = []
+					const tips = []
+
+					function setCell(x, y, ch, color, orderArray) {
+						x = Math.round(x)
+						y = Math.round(y)
+						if (x < 0 || x >= COLS || y < 0 || y >= TOTAL_ROWS) return
+						const cell = { ch, color }
+						grid[y][x] = cell
+						orderArray.push({ x, y, cell })
+					}
+
+					function drawLine(x0, y0, x1, y1, ch, thickness, orderArray) {
+						const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2 + 1
+						for (let i = 0; i <= steps; i++) {
+							const t = i / steps
+							const x = x0 + (x1 - x0) * t
+							const y = y0 + (y1 - y0) * t
+							const light =
+								trunkLightMin + rand() * (trunkLightMax - trunkLightMin)
+							let drawCh = ch
+							if (cfg.speckled && rand() < 0.1) drawCh = '-'
+							setCell(
+								x,
+								y,
+								drawCh,
+								drawCh === '-'
+									? hsl(trunkHue, trunkSat + 10, 12)
+									: hsl(trunkHue, trunkSat, light),
+								orderArray,
+							)
+							for (let w = 1; w < thickness; w++) {
+								if (rand() < 0.7)
+									setCell(x - w, y, ch, hsl(trunkHue, trunkSat, light - 6), orderArray)
+								if (rand() < 0.7)
+									setCell(x + w, y, ch, hsl(trunkHue, trunkSat, light - 6), orderArray)
+							}
+						}
+					}
+
+					function leafCluster(x, y, radius) {
+						tips.push({ x, y })
+						const n = 12 + Math.floor(rand() * 12)
+						for (let i = 0; i < n; i++) {
+							const rx = (rand() * 2 - 1) * radius
+							const ry = (rand() * 2 - 1) * radius * 0.6
+							if (rx * rx + ry * ry > radius * radius) continue
+							const ch = leafChars[Math.floor(rand() * leafChars.length)]
+							const light = 40 + rand() * 26
+							const sat = leafSat + rand() * 10 - 5
+							setCell(x + rx, y + ry, ch, hsl(leafHue, sat, light), treeDrawOrder)
+						}
+					}
+
+					function drawField() {
+						const groundY = ROWS - 1
+						const topChars = ['‾', '_', '.', '`', ',']
+						const grassHue = 92 + rand() * 24
+						for (let x = 0; x < COLS; x++) {
+							const ch = topChars[Math.floor(rand() * topChars.length)]
+							const light = 30 + rand() * 14
+							setCell(x, groundY, ch, hsl(grassHue, 32, light), fieldDrawOrder)
+						}
+						const soilHue = 26 + rand() * 16
+						for (let r = 0; r < ROOT_ROWS; r++) {
+							const y = ROWS + r
+							const density = 0.55 - r * 0.03
+							for (let x = 0; x < COLS; x++) {
+								if (rand() > density) continue
+								const ch = ['.', ':', ',', '`'][Math.floor(rand() * 4)]
+								const light = Math.max(6, 15 + rand() * 8 - r)
+								setCell(x, y, ch, hsl(soilHue, 26, light), fieldDrawOrder)
+							}
+						}
+					}
+
+					const maxDepth = Math.floor(pick(rand, cfg.maxDepth))
+					const baseLen = ROWS * cfg.baseLenFactor
+
+					function branch(x, y, angle, len, depth) {
+						if (depth <= 0 || len < 1.6) {
+							leafCluster(x, y, pick(rand, cfg.leafRadius))
+							return
+						}
+						const x1 = x + Math.sin(angle) * len
+						const y1 = y - Math.cos(angle) * len
+						const deg = (angle * 180) / Math.PI
+						let ch = '|'
+						if (deg > 12) ch = '\\'
+						else if (deg < -12) ch = '/'
+						const thickness = Math.max(1, Math.floor(depth / 3))
+						drawLine(x, y, x1, y1, ch, thickness, treeDrawOrder)
+
+						const spread = pick(rand, cfg.spread)
+						const shrink = pick(rand, cfg.shrink)
+						const wobble = () => rand() * 0.22 - 0.11
+						const droop = cfg.droop * (1 - depth / maxDepth)
+
+						branch(
+							x1,
+							y1,
+							angle - spread - droop + wobble(),
+							len * shrink,
+							depth - 1,
+						)
+						branch(
+							x1,
+							y1,
+							angle + spread + droop + wobble(),
+							len * shrink,
+							depth - 1,
+						)
+						if (depth > 3 && rand() < cfg.extraChance) {
+							branch(
+								x1,
+								y1,
+								angle + wobble() * 1.4,
+								len * shrink * 0.92,
+								depth - 1,
+							)
+						}
+					}
+
+					// === КОМПАКТНЫЕ КОРНИ-ЗМЕИ ===
+					function snakeRoot(startX, startY, direction) {
+						const groundY = ROWS - 1
+						let x = startX
+						let y = startY
+						const amplitude = 0.25 + rand() * 0.35
+						const frequency = 0.35 + rand() * 0.45
+						const step = 0.5 + rand() * 0.4
+						const depthOffset = rand() * 0.25
+						const maxSteps = Math.floor(COLS * (0.12 + rand() * 0.12))
+
+						for (let i = 0; i < maxSteps; i++) {
+							const wave = Math.sin(i * frequency + rand() * Math.PI) * amplitude
+							const ny = groundY + depthOffset + wave
+							const nx = x + direction * step
+
+							if (nx < 0 || nx >= COLS) break
+
+							let ch = '~'
+							const dy = ny - y
+							if (dy > 0.2) ch = '\\'
+							else if (dy < -0.2) ch = '/'
+							else if (rand() < 0.25) ch = '_'
+
+							const light = trunkLightMin + rand() * (trunkLightMax - trunkLightMin) - 6
+							setCell(nx, ny, ch, hsl(trunkHue, trunkSat, Math.max(10, light)), rootDrawOrder)
+
+							x = nx
+							y = ny
+						}
+					}
+
+					// 1. Сначала поле
+					drawField()
+
+					// 2. Потом корни
+					const baseX = COLS / 2
+					const baseY = ROWS - 2
+					const rootCount = 1 + Math.floor(rand() * 2)
+
+					for (let r = 0; r < rootCount; r++) {
+						const yOff = (rand() * 2 - 1) * 0.25
+						snakeRoot(baseX, baseY + yOff, -1)
+						snakeRoot(baseX, baseY + yOff, 1)
+					}
+
+					// короткий центральный якорь
+					const centerLen = 1.5 + rand() * 1.5
+					for (let ry = 0; ry < centerLen; ry++) {
+						const light = trunkLightMin + rand() * (trunkLightMax - trunkLightMin) - 4
+						setCell(
+							baseX + (rand() * 0.3 - 0.15),
+							baseY + ry + 0.5,
+							'|',
+							hsl(trunkHue, trunkSat, Math.max(8, light)),
+							rootDrawOrder,
+						)
+					}
+
+					// 3. Затем дерево
+					branch(COLS / 2, ROWS - 2, 0, baseLen, maxDepth)
+
+					const shuffled = tips.slice()
+					for (let i = shuffled.length - 1; i > 0; i--) {
+						const j = Math.floor(rand() * (i + 1))
+						;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+					}
+					let minDist = Math.max(6, Math.floor(COLS / 16)),
+						fruitSpots = []
+					while (minDist > 0.5) {
+						fruitSpots = []
+						for (const t of shuffled) {
+							if (
+								fruitSpots.every(
+									p => Math.hypot(p.x - t.x, p.y - t.y) >= minDist,
+								)
+							) {
+								fruitSpots.push(t)
+								if (fruitSpots.length === LINKS.length) break
+							}
+						}
+						if (fruitSpots.length >= LINKS.length) break
+						minDist -= 1
+					}
+
+					return { grid, fieldDrawOrder, rootDrawOrder, treeDrawOrder, fruitSpots, species }
+				}
+
+				function emptyGrid() {
+					return Array.from({ length: TOTAL_ROWS }, () =>
+						Array(COLS).fill(null),
+					)
+				}
+
+				function render(grid) {
+					let html = ''
+					for (let y = 0; y < TOTAL_ROWS; y++) {
+						let row = ''
+						for (let x = 0; x < COLS; x++) {
+							const c = grid[y][x]
+							row += c ? `<span style="color:${c.color}">${c.ch}</span>` : ' '
+						}
+						html += row + '\n'
+					}
+					canvasEl.innerHTML = html
+				}
+
+				function clearFruits() {
+					plotWrap.querySelectorAll('.fruit-anchor').forEach(f => f.remove())
+				}
+
+				function placeFruits(spots) {
+					clearFruits()
+					const shuffledLinks = LINKS.slice()
+					spots.forEach((spot, i) => {
+						const link = shuffledLinks[i % shuffledLinks.length]
+
+						const anchor = document.createElement('div')
+						anchor.className = 'fruit-anchor'
+						anchor.style.left = spot.x + 'ch'
+						anchor.style.top = spot.y * LINE_HEIGHT + 'px'
+
+						const a = document.createElement('a')
+						a.className = 'fruit'
+						a.href = link.url
+						a.target = link.url.startsWith('mailto:') ? '_self' : '_blank'
+						a.rel = 'noopener noreferrer'
+						a.setAttribute('aria-label', link.label)
+						a.style.setProperty('--fc', link.color)
+						a.style.setProperty('--fg', link.color + '90')
+						a.style.setProperty('--sway-delay', i * 0.35 + 's')
+						a.innerHTML =
+							'<span aria-hidden="true">' +
+							link.emoji +
+							'</span><span class="tip">' +
+							link.label +
+							'</span>'
+
+						anchor.appendChild(a)
+						plotWrap.appendChild(anchor)
+						requestAnimationFrame(() => {
+							setTimeout(() => a.classList.add('shown'), 130 * i)
+						})
+					})
+				}
+
+				function animatePhase(orderArray, shown, frames, onDone) {
+					const total = orderArray.length
+					if (reduceMotion || total === 0) {
+						for (const { x, y, cell } of orderArray) shown[y][x] = cell
+						render(shown)
+						onDone()
+						return
+					}
+					const chunk = Math.max(1, Math.ceil(total / frames))
+					let i = 0
+					function step() {
+						const end = Math.min(total, i + chunk)
+						for (; i < end; i++) {
+							const { x, y, cell } = orderArray[i]
+							shown[y][x] = cell
+						}
+						render(shown)
+						if (i < total) {
+							requestAnimationFrame(step)
+						} else {
+							onDone()
+						}
+					}
+					requestAnimationFrame(step)
+				}
+
+				function pause(ms, cb) {
+					if (reduceMotion) cb()
+					else setTimeout(cb, ms)
+				}
+
+				function animateDraw(result) {
+					const shown = emptyGrid()
+					render(shown)
+
+					// строгая поэтапность: поле → корни → дерево → (потом фрукты и кнопка)
+					animatePhase(result.fieldDrawOrder, shown, 45, () => {
+						pause(550, () => {
+							animatePhase(result.rootDrawOrder, shown, 75, () => {
+								pause(550, () => {
+									animatePhase(result.treeDrawOrder, shown, 200, () => {
+										finish(result)
+									})
+								})
+							})
+						})
+					})
+				}
+
+				function finish(result) {
+					placeFruits(result.fruitSpots)
+					// 4. фрукты уже появляются, 5. кнопка выезжает следом
+					const btnDelay = reduceMotion
+						? 0
+						: result.fruitSpots.length * 130 + 450
+					pause(btnDelay, () => {
+						controlsEl.classList.add('shown')
+					})
+				}
+
+				function grow() {
+					clearFruits() // <-- старые фрукты удаляются сразу при нажатии
+					controlsEl.classList.remove('shown')
+					computeGrid()
+					const seed = (Math.random() * 4294967296) >>> 0
+					const result = generateTree(seed)
+					const seedHex = seed
+						.toString(16)
+						.toUpperCase()
+						.padStart(8, '0')
+						.slice(0, 6)
+					const label = SPECIES[result.species].label.toUpperCase()
+					jobNoEl.textContent = seedHex + ' · ' + label
+					animateDraw(result)
+				}
+
+				document.getElementById('growBtn').addEventListener('click', grow)
+
+				let resizeTimer
+				window.addEventListener('resize', () => {
+					clearTimeout(resizeTimer)
+					resizeTimer = setTimeout(grow, 300)
+				})
+
+				grow()
+			})()
+		</script>
+	</body>
+</html>
